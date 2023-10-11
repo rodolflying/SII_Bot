@@ -2,87 +2,127 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
-from time import sleep
 from dotenv import load_dotenv
 import os
-import bs4
-import requests
-import json
+from datetime import datetime
+import locale
+from time import sleep
 
-load_dotenv()
-# Load the environment variables
-username = os.getenv("USER_NAME_PERSON")
-password = os.getenv("PASSWORD_PERSON")
+# Set timezone and locale
+os.environ['TZ'] = 'America/Santiago'
+locale.setlocale(locale.LC_ALL, 'es_ES.UTF-8')
 
-def countdown(t):
-    '''Countdown'''
-    # Countdown
-    for i in range(t, 0, -1):
-        print(i)
+
+class SiiAutomation:
+
+    def __init__(self, driver_path):
+        self.driver_path = driver_path
+        self.driver = self._set_driver()
+        self.wait = WebDriverWait(self.driver, 10)  # 10-second implicit wait
+
+    def _set_driver(self):
+        options = Options()
+        # options.add_argument('headless')
+        return webdriver.Chrome(self.driver_path, options=options)
+
+    def countdown(self, t):
+        for i in range(t, 0, -1):
+            print(i)
+            self.wait_for_seconds(1)
+
+    @staticmethod
+    def wait_for_seconds(seconds):
+        sleep(seconds)
+
+    def login(self, url, username, password):
+        self.driver.get(url)
+        self.wait.until(EC.visibility_of_element_located((By.XPATH, '//*[@id="rutcntr"]'))).send_keys(username)
+        self.driver.find_element(By.XPATH, '//*[@id="clave"]').send_keys(password)
+        self.driver.find_element(By.XPATH, '//*[@id="bt_ingresar"]').click()
+        self.countdown(2)
+        # Close pop-up if it appears
+        try:
+            self.wait.until(EC.visibility_of_element_located((By.XPATH, '//*[@id="ModalEmergente"]/div/div/div[3]/button'))).click()
+        except Exception as e:
+            print("No pop up ", str(e))
+
+    def _select_period(self):
+        self.countdown(2)
+        periodos_container = self.driver.find_element(By.CSS_SELECTOR,'#declaracionPeriodoMes')
+        periodos = periodos_container.find_elements(By.TAG_NAME,'option')
+
+        now = datetime.now()
+        month = now.month
+        past_month = (month-1) if month > 1 else 12
+
+        # Convert month number to Spanish month name
+        past_month = datetime.strptime(str(past_month), "%m").strftime("%B")
+
+        self.countdown(2)
+        for periodo in periodos:
+            if periodo.text.lower() == str(past_month).lower():
+                periodos_container.click()
+                self.wait.until(EC.visibility_of(periodo)).click()
+                break
+
+    def _select_year(self):
+        self.countdown(2)
+        years_container = self.driver.find_element(By.CSS_SELECTOR,'select[ng-model="declaracion.periodoAnioSeleccionado"]')
+        years = years_container.find_elements(By.TAG_NAME,'option')
+        now = datetime.now()
+        month = now.month
+        past_month_year = now.year if month > 1 else now.year-1
+
+        for year in years:
+            if year.text == str(past_month_year):
+                years_container.click()
+                self.wait.until(EC.visibility_of(year)).click()
+                break
+
+    def _submit_declaration(self):
+        button_container = self.driver.find_element(By.XPATH, '//*[@id="my-wrapper"]/div[2]/div[1]/div[2]/div/div/div/div[2]/form/div[2]/div/div[3]/button')
+        button_container.click()
+        self.countdown(5)
+        try:
+            button_container = self.driver.find_element(By.XPATH, '//*[@id="my-wrapper"]/div[2]/div[1]/div[2]/div/div/div[2]/div[3]/div[1]/button')
+            button_container.click()
+            self.countdown(3)
+            send_button_container = self.driver.find_element(By.XPATH, '/html/body/div[1]/div/div/div/div[3]/button[2]')
+            send_button_container.click()
+            self.countdown(10)
+        except Exception as e:
+            print("This month it's already OK!", str(e))
+
+    def F29_declaration(self):
+        self.countdown(2)
+        self.driver.get("https://www4.sii.cl/propuestaf29ui/index.html#/default")
+        self._select_period()
+        self._select_year()
+        self._submit_declaration()
+
+    def close(self):
+        self.driver.quit()
+    def download_fee_bills(self):
+        '''download from the page all bills created in the past and save them in a folder
+        Aditionally a csv file with all the info scraped
+        '''
+        self.driver.get("https://www.sii.cl/servicios_online/1040-1287.html")
         sleep(1)
 
-def set_driver():
-    '''Set the browser driver'''
-    # Create a new instance of the browser driver and open the desired webpage
-    #headless
-    options = webdriver.ChromeOptions()
-    # options.add_argument('headless')
-    driver = webdriver.Chrome(r'C:\chromedriver.exe', options=options) # replace with your own path
-    return driver
+def main():
+    # Main execution
+    load_dotenv()
+    username = os.getenv("USER_NAME_SPA")
+    password = os.getenv("PASSWORD_SPA")
 
+    sii_bot = SiiAutomation(driver_path=r'C:\chromedriver.exe')
+    sii_bot.login(url='https://zeusr.sii.cl//AUT2000/InicioAutenticacion/IngresoRutClave.html?https://misiir.sii.cl/cgi_misii/siihome.cgi', username=username, password=password)
+    sii_bot.F29_declaration()
+    # Other methods can be called here
+    sii_bot.close()
 
-def login(driver, username='', password=''):
-    # Enter the username and password
-    print(username, password)
-    driver.find_element(By.XPATH,'//*[@id="rutcntr"]').send_keys(username)
-    driver.find_element(By.XPATH,'//*[@id="clave"]').send_keys(password)
-    driver.find_element(By.XPATH,'//*[@id="bt_ingresar"]').click()
-    sleep(1)
-    #close pop up
-    try:
-        driver.find_element(By.XPATH,'//*[@id="ModalEmergente"]/div/div/div[3]/button').click()
-    except Exception as e:
-        print("No pop up ", str(e))
-    return driver
-
-def issuance_fee_bill(driver):
-    driver.get("https://www.sii.cl/servicios_online/1040-1287.html")
-    sleep(1)
-    #click on button
-    driver.find_element(By.XPATH,'//*[@id="modalInforma"]/div/div/div[3]/button').click()
-    sleep(1)
-    driver.find_element(By.XPATH,'//*[@id="headingOne"]/h4/a').click()
-    sleep(1)
-    #por contribuyente
-    # driver.find_element(By.XPATH,'//*[@id="collapseOne"]/div/div/ul/li[1]/a').click()
-    # por contribuyente usando datos anteriores
-    driver.find_element(By.XPATH,'//*[@id="collapseOne"]/div/div/ul/li[2]/a').click()
-    #
-
-    # /html/body/div[2]/center/table[2]/tbody/tr[5]/td/div/center/form/table/tbody/tr[4]/td/ul/li[4]/input[1]
-
-    sleep(20)
-    return driver
-
-def download_fee_bills(driver):
-    '''download from the page all bills created in the past and save them in a folder
-    Aditionally a csv file with all the info scraped
-    '''
-
-def F29_declaration(driver):
-    pass
-
-# search = user_input()
-driver=None
-# 1) Set the browser driver
-driver=set_driver()
-
-driver.get('https://zeusr.sii.cl//AUT2000/InicioAutenticacion/IngresoRutClave.html?https://misiir.sii.cl/cgi_misii/siihome.cgi')
-
-driver = login(driver,username=username,password=password)
-
-driver = issuance_fee_bill(driver)
-
-
-
+if __name__ == '__main__':
+    main()
